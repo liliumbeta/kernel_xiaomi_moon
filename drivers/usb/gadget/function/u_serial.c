@@ -564,7 +564,8 @@ static int gs_start_io(struct gs_port *port)
 	port->n_read = 0;
 	started = gs_start_rx(port);
 
-	if (started) {
+	/* N19A code for HQ-377257 by p-hankang1 at 2024/03/14 */
+	if (started && port->port.tty != NULL) {
 		gs_start_tx(port);
 		/* Unblock any pending writes into our circular buffer, in case
 		 * we didn't in gs_start_tx() */
