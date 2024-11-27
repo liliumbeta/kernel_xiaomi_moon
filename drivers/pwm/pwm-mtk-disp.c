@@ -154,17 +154,19 @@ static int mtk_disp_pwm_config(struct pwm_chip *chip, struct pwm_device *pwm,
 	u64 div, rate;
 	int err;
 
-	err = clk_prepare_enable(mdp->clk_main);
-	if (err < 0) {
-		dev_err(chip->dev, "Can't enable mdp->clk_main: %pe\n", ERR_PTR(err));
-		return err;
-	}
+	if (mdp->data->need_power_on != true) {
+		err = clk_prepare_enable(mdp->clk_main);
+		if (err < 0) {
+			dev_err(chip->dev, "Can't enable mdp->clk_main: %pe\n", ERR_PTR(err));
+			return err;
+		}
 
-	err = clk_prepare_enable(mdp->clk_mm);
-	if (err < 0) {
-		dev_err(chip->dev, "Can't enable mdp->clk_mm: %pe\n", ERR_PTR(err));
-		clk_disable_unprepare(mdp->clk_main);
-		return err;
+		err = clk_prepare_enable(mdp->clk_mm);
+		if (err < 0) {
+			dev_err(chip->dev, "Can't enable mdp->clk_mm: %pe\n", ERR_PTR(err));
+			clk_disable_unprepare(mdp->clk_main);
+			return err;
+		}
 	}
 
 	/*
@@ -183,8 +185,10 @@ static int mtk_disp_pwm_config(struct pwm_chip *chip, struct pwm_device *pwm,
 	clk_div = div_u64(rate * period_ns, NSEC_PER_SEC) >>
 				PWM_PERIOD_BIT_WIDTH;
 	if (clk_div > PWM_CLKDIV_MAX) {
-		clk_disable_unprepare(mdp->clk_mm);
-		clk_disable_unprepare(mdp->clk_main);
+		if (mdp->data->need_power_on != true) {
+			clk_disable_unprepare(mdp->clk_mm);
+			clk_disable_unprepare(mdp->clk_main);
+		}
 		return -EINVAL;
 	}
 
@@ -217,6 +221,18 @@ static int mtk_disp_pwm_config(struct pwm_chip *chip, struct pwm_device *pwm,
 			clk_disable(mdp->clk_main);
 			dev_info(mdp->chip.dev, "%s clk_mm is error\n", __func__);
 			return err;
+		}
+		if (mdp->data->bls_debug && !mdp->data->has_commit) {
+			/*
+		 	* For MT2701, disable double buffer before writing register
+		 	* and select manual mode and use PWM_PERIOD/PWM_HIGH_WIDTH.
+		 	*/
+			mtk_disp_pwm_update_bits(mdp, mdp->data->bls_debug,
+						 mdp->data->bls_debug_mask,
+						 mdp->data->bls_debug_mask);
+			mtk_disp_pwm_update_bits(mdp, mdp->data->con0,
+						 mdp->data->con0_sel,
+						 mdp->data->con0_sel);
 		}
 	}
 	mtk_disp_pwm_update_bits(mdp, mdp->data->con0,
@@ -292,6 +308,13 @@ static int mtk_disp_pwm_enable(struct pwm_chip *chip, struct pwm_device *pwm)
 			return err;
 		}
 
+		err = clk_prepare_enable(mdp->clk_mm);
+		if (err < 0) {
+			dev_err(chip->dev, "Can't enable mdp->clk_mm: %pe\n", ERR_PTR(err));
+			clk_disable_unprepare(mdp->clk_main);
+			return err;
+		}
+
 
 		err = clk_prepare_enable(mdp->clk_mm);
 		if (err < 0) {
@@ -319,8 +342,8 @@ static void mtk_disp_pwm_disable(struct pwm_chip *chip, struct pwm_device *pwm)
 		clk_disable_unprepare(mdp->clk_main);
 		pwm_src_power_off(mdp);
 	} else {
-	        clk_disable_unprepare(mdp->clk_mm);
-        	clk_disable_unprepare(mdp->clk_main);
+		clk_disable_unprepare(mdp->clk_mm);
+		clk_disable_unprepare(mdp->clk_main);
 	}
 }
 
